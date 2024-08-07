@@ -1,0 +1,662 @@
+---
+title: "What Attributes Lead to Success in Secondary Education?"
+author: "Nanor Asadourian"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(cowplot)
+library(recommenderlab)
+library(ggplot2)
+library(data.table)
+library(plyr)
+library(reshape2)
+library(corrplot)
+library(gridExtra)
+
+knitr::opts_knit$set(root.dir = "~/Datasets/student_data")
+student_data <- read.csv("student_data.csv", stringsAsFactors=FALSE)
+
+#Create Grade Average
+student_data$Gmean <- (student_data$G1 + student_data$G1 + student_data$G3)/3
+student_data$Gmean
+student_data$GradeLetters <- NA
+#20.00	Very good with distinction and honors (Muito bom con distincao e louvor)	A+	Summa cum laude
+#18.00 - 19.99	Excellent (Excelente)	A+	#16.00 - 17.99	Very Good (Muito Bom)	A	Cum laude
+#14.00 - 15.99	Good (Bom)	B	Feliciter
+#10.00 - 13.99	Sufficient (Suficiente)	C	
+#7.00 - 9.99	Poor (Mediocre)	F	Conditional
+#1.00 - 6.99	Poor (Mau)	F	
+
+student_data$GradeLetters[student_data$Gmean < 7] <- "(Mau) F"
+student_data$GradeLetters[7  <= student_data$Gmean & student_data$Gmean< 10] <- "(Mediocre) D"
+student_data$GradeLetters[10 <= student_data$Gmean & student_data$Gmean< 14] <- "(Suficiente) C"
+student_data$GradeLetters[14 <= student_data$Gmean & student_data$Gmean< 16] <- "(Bom) B"
+student_data$GradeLetters[16 <= student_data$Gmean] <-"(Muito Bom) A"
+student_data$GradeLetters <- factor(student_data$GradeLetters, levels = c("(Mau) F", "(Mediocre) D", "(Suficiente) C", "(Bom) B", "(Muito Bom) A"))
+
+#Ensure correct format for categorical variables
+student_data$school <- as.factor(student_data$school)
+student_data$sex <- as.factor(student_data$sex)
+student_data$age <- as.factor(student_data$age)
+student_data$address <- as.factor(student_data$address)
+student_data$famsize <- as.factor(student_data$famsize)
+student_data$Pstatus <- as.factor(student_data$Pstatus)
+student_data$Mjob <- as.factor(student_data$Mjob)
+student_data$Fjob <- as.factor(student_data$Fjob)
+student_data$reason <- as.factor(student_data$reason)
+student_data$guardian <- as.factor(student_data$guardian)
+student_data$schoolsup <- as.factor(student_data$schoolsup)
+student_data$famsup <- as.factor(student_data$famsup)
+student_data$paid <- as.factor(student_data$paid)
+student_data$activities <- as.factor(student_data$activities)
+student_data$nursery <- as.factor(student_data$nursery)
+student_data$higher <- as.factor(student_data$higher)
+student_data$internet <- as.factor(student_data$internet)
+student_data$romantic <- as.factor(student_data$romantic)
+
+```
+
+## Data description
+
+This dataset is an extraction of a survey conducted by the Univeristy of Calfornia Irvine and is part of their Machine Learning Repository as of 2014. Information on the survey and sampling methods can be found [here.](https://archive.ics.uci.edu/dataset/320/student+performance)
+
+## Analysis
+### Questions to Answer:
+
+This dataset was surveyed to best predict student performance, and I want to better understand what are the traits/attributes in a student's life that most heavily influence their academic success. The students surveyed attended two different schools in Portugal and the area of academic success this data measures is only in Mathematics. This dataset is representing a small portion of students attending secondary education, and different countries/schools/cultures will have differing variables and results. 
+
+**Here are some questions that will be guiding this analysis:**
+  
+  - Does the location a student lives or the school they attend affect their learning? 
+  - Does a divorced family that lives apart affect a student's performance in school? 
+  - Does a parent's education level affect their children's want to succeed and try for higher education? 
+      - If so, how much does this impact?
+  - Does a parent's occupation affect their children's want to succeed and try for higher education? 
+      - If so, how much does this impact?
+  - Does studying for more hours a day pay off? Is there an ideal study time? Is there a perfect balance of studying vs. free-time?
+  - Does participating in extracurricular activities help students in their academics?
+  - Does the number of absences affect classroom participation and a student's ability to pass? 
+      - Is there a threshold as to how many absences will cause negative impact?
+  - Does drinking affect classroom participation and a student's ability to pass? 
+      - Is there a threshold as to how many drinks will cause negative impact?
+  - Is a social student, one who values going out with friends and/or is in a relationship, more likely to academically succeed? 
+  - Do family relationships impact success?
+  - What is the percentage of additional support (either from family or school) that a student needs to succeed?
+
+ 
+### Population and sampling
+
+Population: The population for this survey is students in secondary education of two Portuguese schools.
+
+Sample: individuals from the population
+
+Biases: This survey has a location bias as it is only targeting students in two Portuguese schools in Mathematics for it's subject. 
+
+```{r labels, include=FALSE}
+#creating labels
+student_data$medu.lbl <- NA
+student_data$fedu.lbl <- NA
+student_data$travel.lbl <- NA
+student_data$study.lbl <- NA
+
+student_data$medu.lbl[student_data$Medu == "0"] <- "None"
+student_data$medu.lbl[student_data$Medu == "1"] <- "Primary Education"
+student_data$medu.lbl[student_data$Medu == "2"] <- "Junior High"
+student_data$medu.lbl[student_data$Medu == "3"] <- "Secondary Education"
+student_data$medu.lbl[student_data$Medu == "4"] <- "High Education"
+student_data$medu.lbl <- as.factor(student_data$medu.lbl)
+
+student_data$fedu.lbl[student_data$Fedu == "0"] <- "None"
+student_data$fedu.lbl[student_data$Fedu == "1"] <- "Primary Education"
+student_data$fedu.lbl[student_data$Fedu == "2"] <- "Junior High"
+student_data$fedu.lbl[student_data$Fedu == "3"] <- "Secondary Education"
+student_data$fedu.lbl[student_data$Fedu == "4"] <- "High Education"
+student_data$fedu.lbl <- as.factor(student_data$fedu.lbl)
+
+student_data$travel.lbl[student_data$traveltime == "1"] <- "15 minutes or less"
+student_data$travel.lbl[student_data$traveltime == "2"] <- "15 to 30 minutes"
+student_data$travel.lbl[student_data$traveltime == "3"] <- "30 minutes to 1 hour"
+student_data$travel.lbl[student_data$traveltime == "4"] <- "1 hour or more"
+student_data$travel.lbl <- factor(student_data$travel.lbl, levels = c("15 minutes or less", "15 to 30 minutes", "30 minutes to 1 hour", "1 hour or more"))
+
+student_data$study.lbl[student_data$studytime == "1"] <- "2 hours or less"
+student_data$study.lbl[student_data$studytime == "2"] <- "2 to 5 hours"
+student_data$study.lbl[student_data$studytime == "3"] <- "5 to 10 hours"
+student_data$study.lbl[student_data$studytime == "4"] <- "10 hours or more"
+student_data$study.lbl <- factor(student_data$study.lbl, levels = c("2 hours or less", "2 to 5 hours","5 to 10 hours", "10 hours or more"))
+
+```
+
+\newpage
+
+### Demographics\
+```{r Demographics, echo=FALSE}
+
+## GENDER DISTRIBUTION:
+ggplot(student_data, aes(x=sex)) +
+  geom_bar(position="dodge", fill='lightsalmon1') +
+  ggtitle("Sex Distribution") +
+  ylab("Number of Individuals") +
+  xlab("Sex")
+
+## AGE DISTRIBUTION:
+# Add sex breakdown for age distribution
+student_data$age.lbl <- as.factor(student_data$age)
+p_age <- ggplot(student_data, aes(x=age.lbl, fill= sex)) +
+  geom_bar(position="dodge") +
+  ggtitle("Age Distribution") +
+  ylab("Number of Individuals") +
+  xlab("Age of Students")
+
+p_age + scale_fill_manual(values=c("plum","lightskyblue2"))
+
+## SCHOOL DISTRIBUTION:
+ggplot(student_data, aes(x=school, fill=school)) +
+  geom_bar(position="dodge", fill='lightsalmon2') +
+  ggtitle("School Distribution") +
+  ylab("Number of Individuals") +
+  xlab("School")
+
+## GRADE LETTER DISTRIBUTION
+ggplot(student_data, aes(x=GradeLetters))+ 
+  geom_bar(position="dodge", fill= "lightsalmon3") +
+  ggtitle("Grade Averages by Student") + 
+  xlab("Average Grade Letters") +
+  ylab("Number of Individuals")
+```
+
+
+The _Sex_ plot shows that the participants were nearly matched in numbers, with slightly more females attending the school surveys. According to the plot, over 200 of the respondents were female whereas only approximately 180 were male. The _Age_ plot shows that most of the respondents in the surveys were minors, with only 100 participants out of 395 being the age over 18. The _School_ plot shows that most of the respondents in the surveys attended the Gabriel Pereira School, and less than 50 attended Mousinho da Silveira.
+
+### Location\
+
+```{r location, echo=FALSE}
+
+#par(mfrow = c(1, 2))
+#plot(student_data$sex[student_data$address == "R"], student_data$Gmean[student_data$address == "R"], col = c("plum","powderblue"), xlab = "Sex", ylab = "Avergage Grade",  main = "Rural Students Sex vs. Grade")
+
+#plot(student_data$sex[student_data$address == "U"], student_data$Gmean[student_data$address == "U"], col = c("plum","powderblue"), xlab = "Sex", ylab = "Average Grade",  main = "Urban Students Sex vs. Grade")
+
+Rural <- subset(student_data, student_data$address == "R")
+Urban <- subset(student_data, student_data$address == "U")
+
+p_Rsex <- ggplot(Rural, aes(x= sex, y=Gmean, fill=sex)) +
+  geom_boxplot(position="dodge") +
+  ggtitle("Rural Students Average Grade by Sex") +
+  ylab("Average Grade") +
+  xlab("Sex")
+
+p_Usex <- ggplot(Urban, aes(x= sex, y=Gmean, fill=sex)) +
+  geom_boxplot(position="dodge") +
+  ggtitle("Urban Students Average Grade by Sex") +
+  ylab("Average Grade") +
+  xlab("Sex")
+
+
+grid.arrange(p_Rsex + scale_fill_manual(values=c("plum","lightskyblue2")), 
+  p_Usex +  scale_fill_manual(values=c("plum","lightskyblue2")),
+  ncol = 2)
+
+```
+
+Because _Sex_ didn't seem to make a big difference, I wanted to take it a step further if student's address and in turn their school affected this. These plots seem to show this. Students who live in Rural communities seem to have a similar average and distribution. Male students living in Urban communities have a higher average and a larger spread, whereas female students have a slightly lower average and more centered values.
+
+```{r school, echo=FALSE}
+#par(mfrow = c(1, 2))
+
+#plot(student_data$sex[student_data$school == "GP"], student_data$Gmean[student_data$school == "GP"], col = c("plum","powderblue"), xlab = "Sex", ylab = "Average Grade",  main = "GP Students Sex vs. Grade")
+
+#plot(student_data$sex[student_data$school == "MS"], student_data$Gmean[student_data$school == "MS"], col = c("plum","powderblue"), xlab = "Sex", ylab = "Average Grade",  main = "MS Students Sex vs. Grade")
+
+MS <- subset(student_data, student_data$school== "MS")
+GP <- subset(student_data, student_data$school == "GP")
+
+p_MS <- ggplot(MS, aes(x=sex, y=Gmean, fill=sex)) +
+  geom_boxplot(position="dodge") +
+  ggtitle("GP Students Average Grade by Sex") +
+  ylab("Average Grade") +
+  xlab("Sex")
+
+p_GP <- ggplot(GP, aes(x=sex, y=Gmean, fill=sex)) +
+  geom_boxplot(position="dodge") +
+  ggtitle("MS Students Average Grade by Sex") +
+  ylab("Average Grade") +
+  xlab("Sex")
+
+
+grid.arrange(p_MS + scale_fill_manual(values=c("plum","lightskyblue2")), 
+  p_GP +  scale_fill_manual(values=c("plum","lightskyblue2")),
+  ncol = 2)
+
+```
+
+Taking this a step further, while comparing schools, the averages differ more between genders. This could be caused by the small number of students surveyed who attend Mousinho da Silveirs as there are only 50 students.
+
+```{r reasons, include=FALSE}
+par(mfrow = c(1, 2))
+# Plots of reason for attending schools.
+plot(student_data$reason[student_data$school == "MS"], col = "blue", xlab = "Reasons to attend MS", ylab = "Number of Students",  main = "MS ")
+
+plot(student_data$reason[student_data$school == "GP"], col = "pink", xlab = "Reasons to attend GP", ylab = "Number of Students",  main = "GP")
+```
+
+### Family Influence\
+
+```{r cohabitation,  echo=FALSE}
+
+par(mfrow = c(1, 1))
+
+student_data$living.lbl <- NA
+student_data$living.lbl[student_data$Pstatus == "A"] <- "Living Apart"
+student_data$living.lbl[student_data$Pstatus == "T"] <- "Living Together"
+student_data$living.lbl <- as.factor(student_data$living.lbl)
+
+ggplot(student_data, aes(x=living.lbl, y=Gmean)) +
+  geom_boxplot(position="dodge", fill="salmon", color="salmon4") +
+  ggtitle("Parent Cohabitation vs. Average Student Grade") +
+  ylab("Average Grade") +
+  xlab("Parent Cohabitation Status")
+```
+
+```{r summaries}
+# Living Apart
+summary(student_data$Gmean[student_data$Pstatus == "A"])
+
+# Living Together
+summary(student_data$Gmean[student_data$Pstatus == "T"])
+```
+
+Here we see that there is not a big difference in the average grades of students based on their parent's cohabitation status. The difference comes in where the data is centered. If a students' parents are living together, the average minimum and average maximum of the student's grades are 1 point higher. 
+
+#### Family Education\
+```{r education, echo=FALSE}
+# Mom's Education Level
+p_med <- ggplot(student_data, aes(fill=higher, x=medu.lbl)) + 
+  geom_bar(position="dodge") +
+  ggtitle("Mother Education Level and Wish for Higher Education") +
+  ylab("Number of Individuals") +
+  xlab("Mother Education Level")
+
+p_med + scale_fill_manual(values=c("indianred3","darkseagreen2"))
+
+
+# Dad's Education Level
+p_fed <- ggplot(student_data, aes(fill=higher, x=fedu.lbl)) + 
+  geom_bar(position="dodge") +
+  ggtitle("Father Education Level and Wish for Higher Education") +
+  ylab("Number of Individuals") +
+  xlab("Father Education Level")
+
+p_fed + scale_fill_manual(values=c("indianred3","darkseagreen2"))
+
+```
+
+According to these two plots, there is not a significant difference on a student's choice to continue with higher education, but there are differences on their choice to not continue. 
+```{r education chi, include=FALSE}
+# Mom's Education Level
+tab2.1 = table(student_data$higher,student_data$medu.lbl)
+chisq1 <- chisq.test(tab2.1)
+
+# Dad's Education Level
+tab2.2 = table(student_data$higher,student_data$fedu.lbl)
+chisq2 <- chisq.test(tab2.2)
+```
+
+A Chi-squared test was conducted to test if the difference between these two variables are statistically significant.
+
+The null hypothesis is that the influence a parent's education level has on their child's decision is not significant. The alternate hypothesis is that the influence a parent's education level has on their child's decision is statistically significant. 
+
+The tests produced a p-value of 0.007721 and 0.006636 for the mother's and father's education level, respectively. Both these values are  significant with an alpha of 1%. We reject the null hypothesis and can conclude there are significant influences of a parent's education level.
+
+```{r education chi residuals,  echo=FALSE}
+par(mfrow = c(1, 2))
+
+chisq1
+corrplot(chisq1$residuals, is.cor = FALSE, 
+         title = text(3,6,"Mom's Education Correlation", cex = 1.5),
+         tl.col = "black",
+         cl.align.text = "l"	
+        )
+chisq2
+corrplot(chisq2$residuals, is.cor = FALSE, 
+         title = text(3,6,"Dad's Education Correlation", cex = 1.5),
+         tl.col = "black",
+         cl.align.text = "l"	
+        )
+```
+
+Due to the 4 degrees of freedom, the residuals would provide a better insight into exactly what is causing this. Looking at both graphs, there is a general stronger correlation with the mother's education level than the father's. 
+
+As seen above, there is a ***strong negative correlation*** on a student's decision to not attend higher education if their parent attended higher education. This means a student is less likely to say no if either parent went on to higher education. 
+
+There is also a ***strong positive correlation*** between a student's decision to not attend higher education and their parent having no education or up to a primary education. This means a student is more likely to say no if their parent had little to no education.
+ 
+#### Family Ocupation\
+```{r occupation,  echo=FALSE}
+# Mom's Occupation
+p_mjob <- ggplot(student_data, aes(fill=higher, x=Mjob)) + 
+  geom_bar(position="dodge") +
+  ggtitle("Mother Occupation Type and Wish for Higher Education") +
+  ylab("Number of Individuals") +
+  xlab("Mother Occupation Type")
+
+p_mjob + scale_fill_manual(values=c("indianred3","darkseagreen2"))
+
+# Dad's Occupation 
+p_fjob <- ggplot(student_data, aes(fill=higher, x=Fjob)) + 
+  geom_bar(position="dodge") +
+  ggtitle("Father Occupation Type and Wish for Higher Education") +
+  ylab("Number of Individuals") +
+  xlab("Father Occupation Type")
+
+p_fjob + scale_fill_manual(values=c("indianred3","darkseagreen2"))
+```
+
+According to these plots, ***student's whose parents are in the health industry all wish to attend higher education***.
+
+```{r occupation chi, include=FALSE}
+# Mom's Occupation Type
+tab3.1 = table(student_data$higher,student_data$Mjob)
+chisq3 <- chisq.test(tab3.1)
+
+# Dad's Occupation Type
+tab3.2 = table(student_data$higher,student_data$Fjob)
+chisq4 <- chisq.test(tab3.2)
+
+```
+
+A Chi-squared test was conducted to test if the difference between these two variables are statistically significant.
+
+The null hypothesis is that the influence a parent's occupation type has on their child's decision is not significant. The alternate hypothesis is that the influence a parent's occupation type has on their child's decision is statistically significant. 
+
+The tests produced a p-value of 0.06501 and 0.4574 for the mother's and father's occupation types, respectively. Only the mother's occupation is considered significant with an alpha of 1%. We reject the null hypothesis and can conclude there are influences of a mother's occupation type.
+
+```{r occupation chi residuals,  echo=FALSE}
+corrplot(chisq3$residuals, is.cor = FALSE, 
+         title = text(3,3.5,"Mom's Occupation Correlation", cex = 1.5),
+         tl.col = "black",
+         cl.align.text = "l"	
+        )
+```
+
+Due to the 4 degrees of freedom, the residuals would provide a better insight into exactly what is causing this. 
+
+As seen above, there is a ***strong positive correlation*** on a student's decision to not attend higher education if their mother is a stay-at-home parent. This means a student is more likely to say no if they had a stay-at-home mother. 
+
+There is also a ***strong negative correlation*** between a student's decision to not attend higher education and their mother being in the health or education industry. This means a student is less likely to say no if their mother was a teacher or healthcare professional. 
+
+#### Family Relationships\
+```{r family, echo=FALSE}
+ggplot(student_data, aes(x=as.factor(famrel), y=Gmean)) + 
+  geom_boxplot(position="dodge", fill="darksalmon") +
+  ggtitle("Grade Average vs Family Relationships") + 
+  ylab("Average Grade") +
+  xlab("Quality of Family Relationships")
+```
+
+Even though the averages are all nearly the same, between 10.73 and 10.94, there is a much bigger spread towards when students have a better quality of family relationships. There are only 26 students who have a 1 or 2 quality of family relationship, which is less than 7% of all students surveyed. 
+
+```{r family means, include =FALSE}
+length(student_data$famrel[student_data$famrel <3 ])/nrow(student_data)
+mean(student_data$Gmean) # 10.7443
+mean(student_data$Gmean[student_data$famrel == 1]) # 10.708
+mean(student_data$Gmean[student_data$famrel == 2]) # 10.777
+mean(student_data$Gmean[student_data$famrel == 3]) # 10.3825
+mean(student_data$Gmean[student_data$famrel == 4]) # 10.75897
+mean(student_data$Gmean[student_data$famrel == 5]) # 10.9434
+
+# Percentage of students who have school support = 12.9%
+length(student_data$schoolsup[student_data$schoolsup == "yes"])/nrow(student_data)
+
+# Percentage of students who have school support = 61.26%
+length(student_data$schoolsup[student_data$famsup == "yes"])/nrow(student_data)
+
+# Percentage of students who have all around support = 9.6%
+length(student_data$schoolsup[student_data$famsup == "yes" & student_data$schoolsup == "yes"])/nrow(student_data)
+
+# Percentage of students who recieve paid help = 45%
+length(student_data$paid[student_data$paid == "yes"])/nrow(student_data)
+
+
+allsup <- subset(student_data, (student_data$famsup == "yes" & student_data$schoolsup == "yes"))
+# Percentage of students who have all around support and recieve paid help = 50%
+length(allsup$paid[allsup$paid == "yes"])/nrow(allsup)
+
+mean(allsup$Gmean)
+
+
+mean(student_data$Gmean[student_data$famrel == 1]) # 10.708
+mean(student_data$Gmean[student_data$famrel == 2]) # 10.777
+mean(student_data$Gmean[student_data$famrel == 3]) # 10.3825
+mean(student_data$Gmean[student_data$famrel == 4]) # 10.75897
+mean(student_data$Gmean[student_data$famrel == 5]) # 10.9434
+```
+
+### Academic Ability\
+
+
+#### Student Absences\
+
+```{r absences,echo=FALSE}
+p_abs <- ggplot(student_data, aes(y=Gmean, x=absences, color = sex)) + 
+  geom_point(stat="identity") +
+  geom_line(stat="identity") +
+  ggtitle("Grade Average vs Number of Absence") +
+  ylab("Average Grade") +
+  xlab("Number of Absences")
+
+p_abs + 
+  scale_color_manual(values=c("plum","lightskyblue2"))
+
+```
+  
+From this plot, we notice that the average student absence is around 5, and that students less than or around the average absences receive the full spectrum of grades. As students gain absences, their grades seem to converge to the average. This means students with more absences can lead to an average grade. There are only a handful of students who have more than 20 absences, but it is a majority fo female students who are in that upper range of absences.  
+
+***About 10 absences appears to be the threshold of when students begin to score closer to the average grade***
+
+#### Student Drinking\
+```{r drinking, echo=FALSE}
+p_alc1 <- ggplot(student_data, aes(x=as.factor(Dalc), y=Gmean, fill=sex)) +
+  geom_boxplot(position="dodge") +
+  ggtitle("Grade Average vs Drinking Frequency") +
+  ylab("Average Grade") +
+  xlab("Workday Alcohol Consumption")
+
+p_alc2 <- ggplot(student_data, aes(x=as.factor(Walc), y=Gmean, fill=sex)) +
+  geom_boxplot(position="dodge") +
+  ggtitle("Grade Average vs Drinking Frequency") +
+  ylab("Average Grade") +
+  xlab("Weekend Alcohol Consumption")
+
+
+grid.arrange(p_alc1 + scale_fill_manual(values=c("plum","lightskyblue2")), 
+  p_alc2 +  scale_fill_manual(values=c("plum","lightskyblue2")),
+  ncol = 2)
+
+```
+
+Looking at these plots, we have some takeaways. There looks to be a normal distribution when comparing the frequency of alcohol consumption during a *workday* and the student's average grade. When a student drinks more than moderately (3 and above), their grades seem to converge to the average. This means students with a higher alcohol consumption during the workday will likely result in an average grade.
+
+This does not seem to be the case when comparing grade averages with the frequency of alcohol consumption during a *weekend*. Students consuming alcohol high amounts of alcohol on weekends are still able to score high grade averages. This means weekend alcohol consumption doesn't affect student's average grades.  
+
+```{r drinking subsets, include=FALSE}
+#Dalc = WorkDay Alcohol Consumption
+MDrink <- subset(student_data, student_data$Dalc>=3 & student_data$sex == "M")
+FDrink <- subset(student_data, student_data$Dalc>=3 & student_data$sex == "F")
+```
+
+```{r drinking %}
+# Percentage of Male Students who Drink Moderately or More on Workdays
+nrow(MDrink) / length(student_data$sex[student_data$sex == "M"])
+
+
+# Percentage of Female Students who Drink Moderately or More on Workdays
+nrow(FDrink) / length(student_data$sex[student_data$sex == "F"])
+
+```
+There is a larger percentage of male students drinking on the higher end than female students even though there are more female students reported in this survey. Roughly 19.25% of male students drink more than moderately on workdays, where only 3.8% of female students drink more than moderately on workdays. 
+
+***A score of a three, or moderate drinking, appears to be the threshold of when students begin to score closer to the average grade***.
+
+#### Study Habits\
+```{r study, echo=FALSE}
+
+ggplot(student_data, aes(x=study.lbl, y=Gmean)) +
+  geom_boxplot(position="dodge", fill="salmon2") +
+  ggtitle("Grade Average vs Weekly Hours Studying") + 
+  ylab("Average Grade") +
+  xlab("Weekly Study Hours")
+```
+
+Looking at our plot, we notice a slight positive trend between time spent studying and the average grade. Spending at least 5 hours a week studying will lead to a much higher grade average than not but upon studying greater than 10 hours a week, the average falls a little bit. Less than a 25% of the students surveyed study for 5+ hours a week, but there seems to be an advantage to doing so. 
+
+```{r study %}
+# Percentage of Students who study more than 5 Hours Weekly
+length(student_data$studytime[student_data$studytime >=3])/nrow(student_data)
+
+# Students who study for 5 to 10 hours weekly
+summary(student_data$Gmean[student_data$studytime == 3])
+
+# Students who study for 10+ hours weekly
+summary(student_data$Gmean[student_data$studytime == 4])
+
+```
+
+When looking at the summary between studying for 5-10 hours a week (Option 3) and studying for 10+ hours a week (Option 4), we can identify some key differences. The 1st Quartiles and Median of Option 3 are at least 1 point higher, while the Mean and 3rd quartiles has a 1/3 point lead. Option 4 only yields a higher maximum and minimum score.
+
+***Studying for 5-10 hours weekly appears to be the best amoutnof time to yeild the highest average grade***.
+
+```{r EC activities, echo=FALSE}
+
+p_actstud <- ggplot(student_data, aes(x=study.lbl, y=Gmean, fill= activities)) +
+  geom_boxplot(position="dodge") +
+  ggtitle("Grade Average vs Weekly Hours Studying") + 
+  ylab("Average Grade") +
+  xlab("Weekly Study Hours")
+
+p_actstud + scale_fill_manual(values=c("indianred3","darkseagreen2"))
+
+```
+
+This plot breaks down a student's studying habits further and includes their participation in extracurricular activities and how both can affect their grades. It appears that when student's study the least, defined as less than two hours, and when they study the most effectively, defined as when their study hours yield the best grade, extracurricular activities will lead to a worse grade average. One reason for this could be that the EC activity is the cause for a low study time of less than 2 hours or a distraction for those in the higher weekly study times.  
+
+
+```{r EC activities %}
+# Students who study for 5 to 10 hours weekly with an EC Activity
+summary(student_data$Gmean[student_data$studytime == 3 & student_data$activities == "yes"])
+
+# Students who study for 5 to 10 hours weekly without an EC Activity
+summary(student_data$Gmean[student_data$studytime == 3 & student_data$activities == "no"])
+```
+For those students who study moderately, between 2 to 5 hours weekly, and excessively, more then 10 hours weekly,  extracurricular activities will help the student's average grades. One reason for this could be that the EC activity is driving the student to perform better.
+
+***Extra-Curricular activities could be a driving force to study or a distraction from studying based on the students.***
+
+### Social Relationships\
+#### Social Life\
+\
+```{r social %,include=TRUE}
+
+# Students who go out moderately (3 or above)
+length(student_data$goout[student_data$goout >=3])/nrow(student_data)
+
+# Students who have a moderate amount of freetime (3 or above)
+length(student_data$freetime[student_data$freetime >=3])/nrow(student_data)
+
+```
+
+A majority of students, 68% and 78%, have a healthy social life with spending time with friends and having ample free-time after school. 
+
+```{r social, echo=FALSE}
+p_go <- ggplot(student_data, aes(x=goout, y=Gmean)) + 
+  geom_bar(position="dodge", stat="identity", fill="coral1") +
+  ggtitle("Social Life vs Grade Average") + 
+  ylab("Average Grade") +
+  xlab("Likely to Go Out with Friends")
+
+p_free <- ggplot(student_data, aes(x=freetime, y=Gmean)) + 
+  geom_bar(position="dodge", stat="identity", fill="coral3") +
+  ggtitle("Free Time vs Grade Average") + 
+  ylab("Average Grade") +
+  xlab("Likely to have Free Time after School")
+
+grid.arrange(p_go, p_free, ncol = 2)
+
+```
+
+Between the different levels of social lives the student hold, there is little difference. When looking at the levels of free time students have, we also see little difference. Overall, students who have free time and/or go out with friends have a higher average grade compared to those that don't. 
+
+#### Romantic Relationships\
+\
+```{r romance %, include=TRUE}
+# Students who are in a relationship
+summary(student_data$romantic)
+length(student_data$romantic[student_data$romantic == "yes"])/nrow(student_data)
+```
+
+Looking at these percentages, about one third of the students surveyed are in a romantic relationship. We do not have additional information on if both parties in the relationship were surveyed.
+
+```{r romance, echo=FALSE}
+p_romGo <- ggplot(student_data, aes(x=goout, y=Gmean, fill=romantic)) + 
+  geom_bar(position="dodge", stat="identity") +
+  ggtitle("Social Life vs Grade Average") + 
+  ylab("Average Grade") +
+  xlab("Likely to Go Out with Friends")
+
+p_romFr <- ggplot(student_data, aes(x=freetime, y=Gmean, fill=romantic)) + 
+  geom_bar(position="dodge", stat="identity") +
+  ggtitle("Free Time vs Grade Average") + 
+  ylab("Average Grade") +
+  xlab("Likely to have Free Time after School")
+
+grid.arrange(p_romGo + scale_fill_manual(values=c("indianred3","darkseagreen2")),
+             p_romFr + scale_fill_manual(values=c("indianred3","darkseagreen2")),
+             ncol = 2)
+```
+
+When looking a bit further in social relationships when compared to romantic ones, we can see across the board those who are involved with a romantic relationship have a slightly lower average than those who don't. 
+
+
+#### Additional Support\
+
+```{r support, echo=FALSE}
+p_supF <- ggplot(student_data, aes(x=famsup, y=Gmean))+ 
+  geom_bar(position="dodge",stat="identity", fill= "burlywood1") +
+  ggtitle("Grade Average vs Support Recieved") + 
+  ylab("Average Grade") +
+  xlab("Receives Family Support")
+
+p_supS <- ggplot(student_data, aes(x=schoolsup, y=Gmean))+ 
+  geom_bar(position="dodge",stat="identity", fill= "burlywood1") +
+  ggtitle("Grade Average vs Support Recieved") + 
+  ylab("Average Grade") +
+  xlab("Receives School Support")
+
+
+grid.arrange(p_supF, p_supS, ncol = 2)
+
+ggplot(student_data, aes(x=paid, y=Gmean))+ 
+  geom_bar(position="dodge",stat="identity", fill= "burlywood2") +
+  ggtitle("Grade Average vs Paid Support Recieved") + 
+  ylab("Average Grade") +
+  xlab("Receives Paid Support")
+
+```
+
+Looking at the few plots above, it seems those who are receiving support from either the school or their families are performing slightly worse than those who do not. The average grade for those enrolled in extra paid classes within the course subject is slightly lower than those not enrolled in one. These results could be that the student's lower grades warranted the need for additional support, either from families, the school or through  paid classes.
+
+### Conclusion
+
+From this analysis, we see that there are a few factors heavily contributing to better student performance in Mathematics as well as certain traits that can hinder a student's ability.
+
+It appears the **highest performing students** are from an *urban neighborhood* and *well educated family*, *who study 5-10 hours weekly* and have *less than 10 absences* in their school. 
+
+*Drinking during the workday* and *maintaining a romantic relationship* can **impair** a students academic success. 
+
+Students who receive *additional support* and *participate in Extra-Curricular activities* are **no more ahead** in their academics. 
